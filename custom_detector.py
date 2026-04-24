@@ -379,7 +379,13 @@ def evaluate(model: nn.Module, split: str, device: torch.device,
                     gts.append((c, float(row[1]), float(row[2]),
                                 float(row[3]), float(row[4])))
                 gt_lists.append(gts)
-    return compute_map50(pred_lists, gt_lists)
+    p, r, map50 = compute_map50(pred_lists, gt_lists, iou_thresh=0.5)
+    # COCO mAP@0.5:0.95 — average AP over IoU thresholds 0.5, 0.55, …, 0.95
+    map_range = sum(
+        compute_map50(pred_lists, gt_lists, iou_thresh=float(t))[2]
+        for t in torch.linspace(0.5, 0.95, 10)
+    ) / 10
+    return p, r, map50, map_range
 
 
 def train_variant(variant_name: str, epochs: int, lr: float = 1e-3,
@@ -424,9 +430,10 @@ def train_variant(variant_name: str, epochs: int, lr: float = 1e-3,
     out_dir.mkdir(parents=True, exist_ok=True)
     torch.save(model.state_dict(), out_dir / "best.pt")
 
-    p, r, m = evaluate(model, "test", device)
-    print(f"[{variant_name}] TEST  P={p:.3f}  R={r:.3f}  mAP@0.5={m:.3f}")
-    return p, r, m
+    p, r, m50, m_range = evaluate(model, "test", device)
+    print(f"[{variant_name}] TEST  P={p:.3f}  R={r:.3f}  "
+          f"mAP@0.5={m50:.3f}  mAP@0.5:0.95={m_range:.3f}")
+    return p, r, m50, m_range
 
 
 def main() -> int:
@@ -437,16 +444,16 @@ def main() -> int:
     torch.manual_seed(SEED)
 
     print("=== Custom grid detector: no augmentation ===")
-    p0, r0, m0 = train_variant("no_aug", epochs=args.epochs, augment=False)
+    p0, r0, m0_50, m0_range = train_variant("no_aug", epochs=args.epochs, augment=False)
     random.seed(SEED)
     torch.manual_seed(SEED)
     print("\n=== Custom grid detector: with augmentation ===")
-    p1, r1, m1 = train_variant("with_aug", epochs=args.epochs, augment=True)
+    p1, r1, m1_50, m1_range = train_variant("with_aug", epochs=args.epochs, augment=True)
 
-    print("\n| Variant | P | R | mAP@0.5 |")
-    print("|---|---|---|---|")
-    print(f"| custom (no aug) | {p0:.3f} | {r0:.3f} | {m0:.3f} |")
-    print(f"| custom (aug) | {p1:.3f} | {r1:.3f} | {m1:.3f} |")
+    print("\n| Variant | P | R | mAP@0.5 | mAP@0.5:0.95 |")
+    print("|---|---|---|---|---|")
+    print(f"| custom (no aug) | {p0:.3f} | {r0:.3f} | {m0_50:.3f} | {m0_range:.3f} |")
+    print(f"| custom (aug) | {p1:.3f} | {r1:.3f} | {m1_50:.3f} | {m1_range:.3f} |")
     return 0
 
 
