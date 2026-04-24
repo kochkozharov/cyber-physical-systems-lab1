@@ -1,9 +1,3 @@
-"""Evaluate trained detectors on the test split and print a metrics table.
-
-Usage:
-    python evaluate.py                                  # all available models
-    python evaluate.py yolo11n_baseline rtdetr_l_baseline
-"""
 from __future__ import annotations
 
 import os
@@ -21,7 +15,6 @@ EVAL_RUNS = PROJECT_ROOT / "runs" / "eval"
 
 
 def pick_device() -> str:
-    """Return the best PyTorch device available (MPS preferred on macOS)."""
     if torch.cuda.is_available():
         return "cuda"
     if torch.backends.mps.is_available():
@@ -40,7 +33,6 @@ MODELS = {
 
 
 def evaluate_model(model_cls, weights_path: Path, name: str) -> dict:
-    """Run ``.val(split='test')`` on ``weights_path`` and return key metrics."""
     model = model_cls(str(weights_path))
     metrics = model.val(
         data=str(DATA_YAML),
@@ -60,7 +52,6 @@ def evaluate_model(model_cls, weights_path: Path, name: str) -> dict:
 
 
 def main() -> int:
-    """Evaluate every requested model key and print a summary markdown table."""
     keys = sys.argv[1:] or list(MODELS.keys())
     results: list[tuple[str, dict]] = []
     for key in keys:

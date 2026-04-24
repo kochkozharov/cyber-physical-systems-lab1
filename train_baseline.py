@@ -1,11 +1,3 @@
-"""Train the baseline detectors on African Wildlife.
-
-Two architectures are fit for five epochs each with default Ultralytics
-hyperparameters: YOLOv11n (pure convolutional, ~2.6M params) and RT-DETR-l
-(transformer encoder-decoder, ~32M params). ``PYTORCH_ENABLE_MPS_FALLBACK`` is
-exported so the ``grid_sampler_2d_backward`` op used by RT-DETR falls back to
-CPU on Apple Silicon instead of crashing the run.
-"""
 from __future__ import annotations
 
 import os
@@ -31,12 +23,8 @@ SEED = 42
 
 
 def pick_device() -> str:
-    """Return ``'mps'`` on Apple Silicon, else ``'cuda'`` or ``'cpu'``.
-
-    Ultralytics 8.4.x does not auto-select MPS on macOS — it falls back to CPU
-    unless ``device`` is passed explicitly. Detecting it here avoids 10×
-    slower CPU training on M-series machines.
-    """
+    # Ultralytics 8.4.x doesn't auto-select MPS on macOS — without an explicit
+    # ``device`` it silently falls back to CPU (~10× slower on M-series).
     if torch.cuda.is_available():
         return "cuda"
     if torch.backends.mps.is_available():
@@ -48,7 +36,6 @@ DEVICE = pick_device()
 
 
 def train_yolo11n() -> None:
-    """Fit YOLOv11n on the dataset with default Ultralytics hyperparameters."""
     model = YOLO("yolo11n.pt")
     model.train(
         data=str(DATA_YAML),
@@ -65,7 +52,6 @@ def train_yolo11n() -> None:
 
 
 def train_rtdetr_l() -> None:
-    """Fit RT-DETR-l on the dataset with default Ultralytics hyperparameters."""
     model = RTDETR("rtdetr-l.pt")
     model.train(
         data=str(DATA_YAML),
@@ -82,7 +68,6 @@ def train_rtdetr_l() -> None:
 
 
 def main() -> int:
-    """Entry point: ensure data is ready, then train both baseline detectors."""
     if not DATA_YAML.exists():
         print(f"Missing {DATA_YAML}. Run prepare_dataset.py first.", file=sys.stderr)
         return 1

@@ -1,24 +1,3 @@
-"""A four-class grid-based detector implemented from scratch in PyTorch.
-
-Architecture (YOLOv1-style, anchor-free, single-scale):
-  * Backbone: MobileNet-style stem + seven depthwise-separable blocks,
-    progressively downsampling 224x224 → 7x7 with 512 channels.
-  * Grid head: a 1x1 conv producing ``(5 + num_classes)`` channels per cell.
-    For each of the 49 cells we predict:
-      - ``obj`` (sigmoid): probability that a box centre lies in this cell
-      - ``(dx, dy)`` (sigmoid): centre offset within the cell, in [0, 1]
-      - ``(w, h)`` (sigmoid): box width/height as a fraction of the image
-      - class logits (softmax over the four wildlife classes)
-  * Loss: BCE(obj) over all cells + SmoothL1(box) + CE(class), the latter two
-    only on the cell that contains each GT centre. Object-loss is weighted
-    down vs the others to handle the 5:44 positive/negative imbalance.
-  * Inference: per-class NMS (IoU ≥ 0.5) over cell predictions above a
-    confidence threshold.
-
-Metrics: proper mAP@0.5 computed by sorting all predictions by confidence and
-walking the per-class precision-recall curve (COCO-style 101-point
-interpolation).
-"""
 from __future__ import annotations
 
 import argparse
@@ -49,7 +28,6 @@ SEED = 42
 
 
 def get_device() -> torch.device:
-    """Pick the best available PyTorch device (CUDA → MPS → CPU)."""
     if torch.cuda.is_available():
         return torch.device("cuda")
     if torch.backends.mps.is_available():
@@ -58,14 +36,7 @@ def get_device() -> torch.device:
 
 
 class WildlifeDataset(Dataset):
-    """YOLO-format dataset returning image + padded box tensor.
-
-    Each sample yields ``(image, boxes)`` where ``boxes`` is a
-    ``(MAX_BOXES, 5)`` tensor with rows ``(cls, cx, cy, w, h)``; unused rows
-    are filled with ``cls=-1`` sentinel so losses can mask them out. Images
-    with zero GT boxes are dropped at load time.
-    """
-
+    # Unused box rows are padded with ``cls=-1`` so loss code can mask them.
     def __init__(self, split: str, augment: bool = False):
         self.img_dir = DATA_DIR / "images" / split
         self.label_dir = DATA_DIR / "labels" / split
@@ -78,7 +49,6 @@ class WildlifeDataset(Dataset):
         self.color_jitter = transforms.ColorJitter(0.3, 0.3, 0.3, 0.05)
 
     def _collect_samples(self) -> list[tuple[Path, list[tuple[int, float, float, float, float]]]]:
-        """Walk the split and keep ``(image_path, [box_tuples])`` pairs."""
         samples = []
         if not self.img_dir.exists():
             return samples
@@ -120,8 +90,6 @@ class WildlifeDataset(Dataset):
 
 
 class DepthwiseSeparableBlock(nn.Module):
-    """Depthwise 3x3 + pointwise 1x1 with BN and ReLU6 between."""
-
     def __init__(self, in_ch: int, out_ch: int, stride: int = 1):
         super().__init__()
         self.dw = nn.Conv2d(
@@ -138,8 +106,6 @@ class DepthwiseSeparableBlock(nn.Module):
 
 
 class GridDetector(nn.Module):
-    """Backbone → 1x1 grid head, outputs ``(B, 5+C, S, S)``."""
-
     def __init__(self, num_classes: int = NUM_CLASSES, grid_s: int = GRID_S):
         super().__init__()
         self.num_classes = num_classes
@@ -168,17 +134,6 @@ class GridDetector(nn.Module):
 
 
 def build_targets(boxes: torch.Tensor, grid_s: int = GRID_S):
-    """Convert padded GT boxes into dense grid targets.
-
-    ``boxes`` is ``(B, MAX_BOXES, 5)`` with ``-1`` padding in class column.
-    Returns:
-      * ``obj_t``: ``(B, S, S)`` float, 1.0 where a GT centre falls
-      * ``box_t``: ``(B, S, S, 4)`` float, ``(dx, dy, w, h)`` in cell-local
-        coords (offset) + image-fraction (size). Only meaningful where
-        ``obj_t == 1``; zeros elsewhere.
-      * ``cls_t``: ``(B, S, S)`` long, class index at each positive cell
-        (``-1`` elsewhere — to mask cross-entropy).
-    """
     device = boxes.device
     B = boxes.shape[0]
     obj_t = torch.zeros(B, grid_s, grid_s, device=device)
@@ -208,7 +163,6 @@ def build_targets(boxes: torch.Tensor, grid_s: int = GRID_S):
 
 
 def split_predictions(raw: torch.Tensor):
-    """Split raw ``(B, 5+C, S, S)`` head output into activated components."""
     obj_logits = raw[:, 0]                         # (B, S, S)
     box_raw = raw[:, 1:5]                          # (B, 4, S, S)
     cls_logits = raw[:, 5:]                        # (B, C, S, S)
@@ -219,12 +173,8 @@ def split_predictions(raw: torch.Tensor):
 def grid_loss(raw: torch.Tensor, obj_t, box_t, cls_t, lambda_obj: float = 1.0,
               lambda_noobj: float = 0.5, lambda_box: float = 5.0,
               lambda_cls: float = 1.0):
-    """Combined objectness + box + class loss.
-
-    Box and class losses are masked to positive cells. Objectness uses
-    separate weights for positive (with-object) and negative (empty) cells to
-    compensate for the 5:44 imbalance — the same trick YOLOv1 used.
-    """
+    # Split objectness weight into pos/neg to compensate the ~5:44 imbalance
+    # between with-object and empty cells (YOLOv1 trick).
     obj_logits, box_act, cls_logits = split_predictions(raw)
     pos = obj_t > 0.5
     neg = ~pos
@@ -261,11 +211,6 @@ def grid_loss(raw: torch.Tensor, obj_t, box_t, cls_t, lambda_obj: float = 1.0,
 
 
 def decode_predictions(raw: torch.Tensor, conf_thresh: float = 0.2):
-    """Convert raw head output into a list of per-image predictions.
-
-    Returns a list of length ``B``; each entry is a tensor ``(N_i, 6)`` with
-    columns ``(cls, cx, cy, w, h, conf)``, unfiltered by NMS.
-    """
     B, _, S, _ = raw.shape
     obj_logits, box_act, cls_logits = split_predictions(raw)
     obj_prob = torch.sigmoid(obj_logits)                                  # (B,S,S)
@@ -296,7 +241,6 @@ def decode_predictions(raw: torch.Tensor, conf_thresh: float = 0.2):
 
 
 def iou_xywh(boxes_a: torch.Tensor, boxes_b: torch.Tensor) -> torch.Tensor:
-    """Pairwise IoU for two sets of (cx, cy, w, h) boxes, returns (Na, Nb)."""
     a_x1 = boxes_a[:, 0] - boxes_a[:, 2] / 2
     a_y1 = boxes_a[:, 1] - boxes_a[:, 3] / 2
     a_x2 = boxes_a[:, 0] + boxes_a[:, 2] / 2
@@ -317,10 +261,6 @@ def iou_xywh(boxes_a: torch.Tensor, boxes_b: torch.Tensor) -> torch.Tensor:
 
 
 def nms_per_class(preds: torch.Tensor, iou_thresh: float = 0.5) -> torch.Tensor:
-    """Greedy NMS applied independently per class on ``(N, 6)`` predictions.
-
-    Columns: ``(cls, cx, cy, w, h, conf)``. Returns the kept rows.
-    """
     if preds.numel() == 0:
         return preds
     keep = []
@@ -343,13 +283,6 @@ def nms_per_class(preds: torch.Tensor, iou_thresh: float = 0.5) -> torch.Tensor:
 
 def compute_map50(pred_lists: list[torch.Tensor], gt_lists: list[list[tuple]],
                   num_classes: int = NUM_CLASSES, iou_thresh: float = 0.5):
-    """Proper per-class AP@0.5 averaged to mAP@0.5.
-
-    ``pred_lists[i]`` is a ``(N, 6)`` tensor of predictions for image ``i`` —
-    ``(cls, cx, cy, w, h, conf)``. ``gt_lists[i]`` is the list of GT tuples
-    ``(cls, cx, cy, w, h)`` for image ``i``. Returns
-    ``(mean_precision, mean_recall, map50, per_class_ap)``.
-    """
     aps = []
     per_class_stats = []
     for c in range(num_classes):
@@ -424,7 +357,6 @@ def compute_map50(pred_lists: list[torch.Tensor], gt_lists: list[list[tuple]],
 
 def evaluate(model: nn.Module, split: str, device: torch.device,
              conf_thresh: float = 0.05):
-    """Evaluate a trained grid detector on a split and return (P, R, mAP@0.5)."""
     ds = WildlifeDataset(split)
     loader = DataLoader(ds, batch_size=16, shuffle=False, num_workers=0)
     model.eval()
@@ -452,7 +384,6 @@ def evaluate(model: nn.Module, split: str, device: torch.device,
 
 def train_variant(variant_name: str, epochs: int, lr: float = 1e-3,
                   augment: bool = False):
-    """Fit one variant end-to-end and persist weights + return test metrics."""
     device = get_device()
     train_ds = WildlifeDataset("train", augment=augment)
     if len(train_ds) == 0:
@@ -499,7 +430,6 @@ def train_variant(variant_name: str, epochs: int, lr: float = 1e-3,
 
 
 def main() -> int:
-    """Train both variants (no-aug vs aug) and print a summary table."""
     ap = argparse.ArgumentParser()
     ap.add_argument("--epochs", type=int, default=60)
     args = ap.parse_args()

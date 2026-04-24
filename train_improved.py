@@ -1,16 +1,3 @@
-"""Retrain both detectors with a stronger augmentation and schedule recipe.
-
-Hypotheses being tested (reported in the README):
- * Stronger augmentation (mosaic, mixup, HSV, flip, small rotation) improves
-   generalisation on a modest-size dataset (~1500 images).
- * A cosine LR schedule with a short warmup stabilises training of the
-   transformer detector.
- * Weight decay plus label smoothing regularise the CNN against overfitting.
-
-Training runs for 15 epochs so the cosine schedule and augmentation have room
-to actually contribute — the 5-epoch budget used for the baseline would make
-warmup eat most of training.
-"""
 from __future__ import annotations
 
 import os
@@ -35,7 +22,6 @@ SEED = 42
 
 
 def pick_device() -> str:
-    """Return the best PyTorch device available (MPS preferred on macOS)."""
     if torch.cuda.is_available():
         return "cuda"
     if torch.backends.mps.is_available():
@@ -61,7 +47,6 @@ IMPROVED = dict(
 
 
 def train_yolo11n_improved() -> None:
-    """Fit YOLOv11n with the improved hyperparameter recipe."""
     model = YOLO("yolo11n.pt")
     model.train(
         data=str(DATA_YAML),
@@ -79,13 +64,9 @@ def train_yolo11n_improved() -> None:
 
 
 def train_rtdetr_l_improved() -> None:
-    """Fit RT-DETR-l with the improved hyperparameter recipe.
-
-    RT-DETR ignores ``label_smoothing`` in its loss, so we drop it before
-    passing kwargs to ``train`` to avoid an Ultralytics "unused argument"
-    warning in the logs.
-    """
     model = RTDETR("rtdetr-l.pt")
+    # RT-DETR ignores ``label_smoothing`` — drop it to avoid an Ultralytics
+    # "unused argument" warning in the logs.
     params = {k: v for k, v in IMPROVED.items() if k != "label_smoothing"}
     model.train(
         data=str(DATA_YAML),
@@ -103,7 +84,6 @@ def train_rtdetr_l_improved() -> None:
 
 
 def main() -> int:
-    """Entry point: ensure data is ready, then train both improved detectors."""
     if not DATA_YAML.exists():
         print(f"Missing {DATA_YAML}. Run prepare_dataset.py first.", file=sys.stderr)
         return 1

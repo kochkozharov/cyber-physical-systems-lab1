@@ -1,9 +1,3 @@
-"""End-to-end pipeline runner: dataset → baseline → improved → custom.
-
-Runs every stage of the lab in sequence and stops with a non-zero exit code
-the moment any step fails. Each stage is invoked as a subprocess so logs are
-streamed live and per-script failures surface immediately.
-"""
 from __future__ import annotations
 
 import subprocess
@@ -23,7 +17,6 @@ STEPS: list[list[str]] = [
 
 
 def main() -> int:
-    """Run every pipeline step in order and short-circuit on first failure."""
     for step in STEPS:
         header = " ".join(step[1:])
         print(f"\n===== {header} =====\n", flush=True)

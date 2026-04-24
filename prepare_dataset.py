@@ -1,11 +1,3 @@
-"""Download the African Wildlife detection dataset and write a YOLO config.
-
-The archive is hosted in the Ultralytics ``assets`` GitHub release. It extracts
-into a flat layout with ``images/{train,val,test}`` and ``labels/{train,val,test}``
-side by side; we move those into ``dataset/african-wildlife/`` for cleanliness
-and then emit ``data/dataset.yaml`` with absolute paths so training scripts can
-find the data without relying on the Ultralytics global settings directory.
-"""
 from __future__ import annotations
 
 import shutil
@@ -31,7 +23,6 @@ SPLITS = ("train", "val", "test")
 
 
 def download_file(url: str, dest: Path) -> None:
-    """Stream-download ``url`` to ``dest`` with a tqdm progress bar."""
     dest.parent.mkdir(parents=True, exist_ok=True)
     with requests.get(url, stream=True, timeout=60, allow_redirects=True) as response:
         response.raise_for_status()
@@ -47,7 +38,6 @@ def download_file(url: str, dest: Path) -> None:
 
 
 def _splits_ready() -> bool:
-    """Return ``True`` iff every expected split folder contains files."""
     for split in SPLITS:
         img_dir = DATASET_DIR / "images" / split
         lbl_dir = DATASET_DIR / "labels" / split
@@ -59,7 +49,6 @@ def _splits_ready() -> bool:
 
 
 def ensure_dataset() -> None:
-    """Download and extract the dataset archive if it is not already prepared."""
     if _splits_ready():
         print(f"Dataset already present at {DATASET_DIR}")
         return
@@ -100,7 +89,6 @@ def ensure_dataset() -> None:
 
 
 def write_config() -> None:
-    """Write ``data/dataset.yaml`` pointing at absolute split directories."""
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     config = {
         "path": str(DATASET_DIR),
@@ -115,7 +103,6 @@ def write_config() -> None:
 
 
 def count_split(split: str) -> int:
-    """Return the number of image files in a given split folder."""
     img_dir = DATASET_DIR / "images" / split
     if not img_dir.exists():
         return 0
@@ -123,7 +110,6 @@ def count_split(split: str) -> int:
 
 
 def main() -> int:
-    """Top-level entrypoint: download, extract, emit config, print summary."""
     ensure_dataset()
     write_config()
 
