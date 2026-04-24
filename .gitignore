@@ -1,0 +1,16 @@
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pt
+*.onnx
+*.zip
+
+dataset/
+runs/
+data/dataset.yaml
+
+.DS_Store
+.idea/
+.vscode/
+logs/
